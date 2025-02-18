@@ -1,82 +1,108 @@
-"""
-Program to find all unique prime numbers hidden within a given binary string, and less than a given integer number.
-Optimised for larger strings.
-"""
+from utilities import timer, is_prime
+from numpy import fromiter, dtype, uint8
+from math import isqrt, ceil, log2
+from multiprocessing import Pool, cpu_count
+from time import time
 
-from multiprocessing import Pool
-from utilities import timer
-import math
-from functools import cache
 
-@cache
-def is_prime(num):
-    """ Function to filter prime numbers from all substrings of a binary string only keeping numbers below a certain value.
-    :param num: The number to be checked.
-    :return: True or False depending on if the number is prime.
-    :rtype: Bool
-    """
-
-    if num < 2:
-        return False
-
-    if num == 2:
-        return True
-
-    for i in range(3, math.isqrt(num) + 1, 2):
-        if num % i == 0:
-            return False
-
-    return True
-
-def filter_substrings(start, string, maximum):
-    """ Function to filter substrings from a given index.
-    :param start: The starting index.
-    :param string: The string to be filtered.
-    :param maximum: The maximum value to keep.
-    :return: List of filtered numbers.
-    :rtype: List[int]
-    """
-
-    results = set()
-    current_value = 0
-
-    for end in range(start, len(string)):
-        current_value = (current_value << 1) | int(string[end])
-        if string[end] == "0":
-            continue
-
-        if maximum > 0 and current_value > maximum:
-            break
-
-        if is_prime(current_value):
-            results.add(current_value)
-
-    return results
+def check_substring(sub_string, maximum):
+    num = int(sub_string, 2)
+    if (num <= maximum) if maximum > 0 else True:
+        if is_prime(num):
+            return num
+    return None
 
 @timer
 def sub_string_primes(string, maximum):
-    """ Function to find prime numbers from all substrings of a binary string only keeping numbers below a certain value.
-    :param string: The string to be filtered.
-    :param maximum: The maximum value to keep.
-    :return: List of filtered numbers.
-    :rtype: List[int]
-    """
+    result = set()
     length = len(string)
+    len_cap = 2 ** ceil(log2(maximum)) if maximum > 1 else length
 
     with Pool() as pool:
-        results = pool.starmap(
-            filter_substrings,
-            [(start, string, maximum) for start in range(length)]
-        )
+        tasks = []
+        two_flag = False
 
-    unique_primes = set()
-    for result in results:
-        unique_primes.update(result)
+        ss_start = time()
+        for i in range(length - 1):
+            if string[i] != "1":
+                continue
 
-    return list(unique_primes)
+            for j in range(i + 1, min(len_cap + i, len(string))):
+                if string[j] != '1':
+                    if not two_flag and j == i + 1:
+                        two_flag = True
+                    continue
+
+                # print(f"Index: {i}/{length - 1}:{j}/{min(len_cap + i, len(string)) - 1}, String: {string[i:j]}")
+
+                tasks.append((string[i:j + 1], maximum))
+        ss_time = time() - ss_start
+
+        p_start = time()
+        result = set(filter(lambda x: x is not None, pool.starmap(check_substring, tasks)))
+        if two_flag:
+            result.add(2)
+        p_time = time() - p_start
+
+    return result, ss_time, p_time
+
+@timer
+def sub_string_primes2(string, maximum):
+    result = set()
+    length = len(string)
+    len_cap = 2 ** ceil(log2(maximum)) if maximum > 1 else length
+
+    with Pool() as pool:
+        tasks = []
+        two_flag = False
+
+        ss_start = time()
+        for i in range(length - 1):
+            if string[i] != "1":
+                continue
+
+            for j in range(i + 1, min(len_cap + i, len(string))):
+                if string[j] != '1':
+                    if not two_flag and j == i + 1:
+                        two_flag = True
+                    continue
+
+                # print(f"Index: {i}/{length - 1}:{j}/{min(len_cap + i, len(string)) - 1}, String: {string[i:j]}")
+
+                tasks.append((string[i:j + 1], maximum))
+        ss_time = time() - ss_start
+
+        p_start = time()
+        result = set(filter(lambda x: x is not None, pool.starmap(check_substring, tasks)))
+        if two_flag:
+            result.add(2)
+        p_time = time() - p_start
+
+    return result
+
+@timer
+def sub_string_primes3(string, maximum):
+    setup_time = time()
+    length = len(string)
+    len_cap = 2 ** ceil(log2(maximum)) if maximum > 1 else length
+
+    indexes = fromiter((i for i, x in enumerate(string) if x == "1"), dtype=uint8)
+
+    tasks = []
+
+    for i in range(len(indexes) - 1):
+        for j in range(i + 1, len(indexes) - (i + 1)):
+            if j - i < len_cap:
+                tasks.append((string[indexes[i]:indexes[j]], maximum))
+    setup_finish = time() - setup_time
+
+    with Pool() as pool:
+        return set(filter(lambda x: x is not None, pool.starmap(check_substring, tasks))), setup_finish
 
 if __name__ == "__main__":
     bin_string, maximum = input("Enter a binary number and the maximum prime to find (0 for no limit): ").split(" ")
+    (result, setup_time), total_time = sub_string_primes3(bin_string, int(maximum))
 
-    result, time = sub_string_primes(bin_string, int(maximum))
-    print(f"Result: {result}\nElapsed time: {time:.10f}")
+    print(f"Result: {result}\n"
+          f"Total time: {total_time}\n"
+          f"Total time: {setup_time}\n")
